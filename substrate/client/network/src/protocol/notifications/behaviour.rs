@@ -2354,7 +2354,7 @@ mod tests {
 				reserved_only: false,
 			},
 			to_notifications,
-			Box::new(MockPeerStore {}),
+			Arc::new(MockPeerStore {}),
 		);
 
 		(
