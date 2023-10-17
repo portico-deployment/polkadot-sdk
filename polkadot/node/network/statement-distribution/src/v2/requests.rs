@@ -788,6 +788,11 @@ fn validate_complete_response(
 			return invalid_candidate_output()
 		}
 
+		// If we filtered out all statements, the response is invalid.
+		if received_filter.is_blank() {
+			return invalid_candidate_output()
+		}
+
 		statements
 	};
 
