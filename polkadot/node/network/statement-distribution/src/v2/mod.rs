@@ -17,6 +17,7 @@
 //! Implementation of the v2 statement distribution protocol,
 //! designed for asynchronous backing.
 
+use bitvec::prelude::{BitVec, Lsb0};
 use polkadot_node_network_protocol::{
 	self as net_protocol,
 	grid_topology::SessionGridTopology,
@@ -63,7 +64,7 @@ use futures::{
 use std::{
 	collections::{
 		hash_map::{Entry, HashMap},
-		HashSet,
+		BTreeSet, HashSet,
 	},
 	time::{Duration, Instant},
 };
@@ -162,6 +163,9 @@ struct PerSessionState {
 	// getting the topology from the gossip-support subsystem
 	grid_view: Option<grid::SessionTopologyView>,
 	local_validator: Option<ValidatorIndex>,
+	// We assume that the validators are never re-enabled per session
+	// and store the latest state here.
+	disabled_validators: BTreeSet<ValidatorIndex>,
 }
 
 impl PerSessionState {
@@ -183,6 +187,7 @@ impl PerSessionState {
 			authority_lookup,
 			grid_view: None,
 			local_validator: local_validator.map(|(_key, index)| index),
+			disabled_validators: BTreeSet::new(),
 		}
 	}
 
@@ -194,6 +199,34 @@ impl PerSessionState {
 		);
 
 		self.grid_view = Some(grid_view);
+	}
+
+	/// A convenience function to generate a disabled bitmask for the given backing group.
+	/// The output bits are set to `true` for validators that are disabled.
+	/// Returns `None` if the group index is out of bounds.
+	pub fn disabled_bitmask(&self, group: GroupIndex) -> Option<BitVec<u8, Lsb0>> {
+		let group = self.groups.get(group)?;
+		let group_size = group.len();
+		let mut mask = BitVec::repeat(false, group_size);
+		for (i, v) in group.iter().enumerate() {
+			if self.is_disabled(v) {
+				mask.set(i, true);
+			}
+		}
+		Some(mask)
+	}
+
+	/// Returns `true` if the given validator is disabled in the current session.
+	pub fn is_disabled(&self, validator_index: &ValidatorIndex) -> bool {
+		self.disabled_validators.contains(validator_index)
+	}
+
+	/// Extend the set of disabled validators for the current session.
+	pub fn extend_disabled_validators(
+		&mut self,
+		disabled: impl IntoIterator<Item = ValidatorIndex>,
+	) {
+		self.disabled_validators.extend(disabled);
 	}
 }
 
@@ -483,9 +516,6 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 		.map_err(JfyiError::RuntimeApiUnavailable)?
 		.map_err(JfyiError::FetchDisabledValidators)?;
 
-		// deduplicate and order
-		let disabled_validators = disabled_validators.into_iter().collect();
-
 		let group_rotation_info =
 			polkadot_node_subsystem_util::request_validator_groups(new_relay_parent, ctx.sender())
 				.await
@@ -529,8 +559,10 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 
 		let per_session = state
 			.per_session
-			.get(&session_index)
+			.get_mut(&session_index)
 			.expect("either existed or just inserted; qed");
+
+		per_session.extend_disabled_validators(disabled_validators);
 
 		let local_validator = per_session.local_validator.and_then(|v| {
 			find_local_validator_state(
@@ -546,7 +578,7 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 			new_relay_parent,
 			PerRelayParentState {
 				local_validator,
-				statement_store: StatementStore::new(&per_session.groups, &disabled_validators),
+				statement_store: StatementStore::new(&per_session.groups),
 				availability_cores,
 				group_rotation_info,
 				seconding_limit,
@@ -1313,10 +1345,7 @@ async fn handle_incoming_statement<Context>(
 			},
 		};
 
-	if per_relay_parent
-		.statement_store
-		.is_disabled(&statement.unchecked_validator_index())
-	{
+	if per_session.is_disabled(&statement.unchecked_validator_index()) {
 		gum::debug!(
 			target: LOG_TARGET,
 			?relay_parent,
@@ -1446,17 +1475,6 @@ async fn handle_incoming_statement<Context>(
 				?relay_parent,
 				validator_index = ?originator_index,
 				"Error - accepted message from unknown validator."
-			);
-
-			return
-		},
-		Err(statement_store::Error::ValidatorDisabled) => {
-			// sanity: should never happen, checked above.
-			gum::warn!(
-				target: LOG_TARGET,
-				?relay_parent,
-				validator_index = ?originator_index,
-				"Error - accepted message from disabled validator."
 			);
 
 			return
@@ -2024,11 +2042,7 @@ async fn handle_incoming_manifest_common<'a, Context>(
 	let claimed_parent_hash = manifest_summary.claimed_parent_hash;
 
 	// Ignore votes from disabled validators when counting towards the threshold.
-	let disabled_mask = per_session
-		.groups
-		.get(group_index)
-		.map(|group| relay_parent_state.statement_store.disabled_bitmask(group))
-		.unwrap_or_default();
+	let disabled_mask = per_session.disabled_bitmask(group_index).unwrap_or_default();
 	manifest_summary.statement_knowledge.mask_seconded(&disabled_mask);
 	manifest_summary.statement_knowledge.mask_valid(&disabled_mask);
 
@@ -2622,7 +2636,9 @@ pub(crate) async fn handle_response<Context>(
 			Some(g) => g,
 		};
 
-		let disabled_mask = relay_parent_state.statement_store.disabled_bitmask(group);
+		let disabled_mask = per_session
+			.disabled_bitmask(group_index)
+			.expect("group_index checked above; qed");
 
 		let res = response.validate_response(
 			&mut state.request_manager,
@@ -2800,11 +2816,7 @@ pub(crate) fn answer_request(state: &mut State, message: ResponderMessage) {
 	};
 
 	// Ignore disabled validators when sending the response.
-	let disabled_mask = per_session
-		.groups
-		.get(confirmed.group_index())
-		.map(|group| relay_parent_state.statement_store.disabled_bitmask(group))
-		.unwrap_or_default();
+	let disabled_mask = per_session.disabled_bitmask(confirmed.group_index()).unwrap_or_default();
 	and_mask.mask_seconded(&disabled_mask);
 	and_mask.mask_valid(&disabled_mask);
 
