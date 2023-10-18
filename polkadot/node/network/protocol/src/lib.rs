@@ -637,12 +637,6 @@ pub mod v2 {
 			}
 		}
 
-		/// Returns `true` if the filter consists of zeroes.
-		pub fn is_blank(&self) -> bool {
-			self.seconded_in_group.leading_zeros() == self.seconded_in_group.len() &&
-				self.validated_in_group.leading_zeros() == self.validated_in_group.len()
-		}
-
 		/// Whether the filter has a specific expected length, consistent across both
 		/// bitfields.
 		pub fn has_len(&self, len: usize) -> bool {

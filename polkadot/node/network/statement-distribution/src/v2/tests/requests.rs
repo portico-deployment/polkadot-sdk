@@ -1242,7 +1242,7 @@ fn peer_reported_for_providing_statement_from_disabled_validator() {
 			assert_matches!(
 				overseer.recv().await,
 				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
-					if p == peer_b && r == COST_INVALID_RESPONSE.into() => { }
+					if p == peer_b && r == BENEFIT_VALID_RESPONSE.into() => { }
 			);
 
 			assert_matches!(
