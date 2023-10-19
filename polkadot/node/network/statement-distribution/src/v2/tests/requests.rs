@@ -1270,6 +1270,148 @@ fn peer_reported_for_providing_statement_from_disabled_validator() {
 }
 
 #[test]
+fn disabling_works_from_the_latest_state_not_relay_parent() {
+	let group_size = 3;
+	let config = TestConfig {
+		validator_count: 20,
+		group_size,
+		local_validator: true,
+		async_backing_params: None,
+	};
+
+	let relay_1 = Hash::repeat_byte(1);
+	let relay_2 = Hash::repeat_byte(2);
+	let peer_disabled = PeerId::random();
+
+	test_harness(config, |state, mut overseer| async move {
+		let local_validator = state.local.clone().unwrap();
+		let local_para = ParaId::from(local_validator.group_index.0);
+
+		let other_group_validators = state.group_validators(local_validator.group_index, true);
+		let index_disabled = other_group_validators[0];
+
+		let leaf_1 = state.make_dummy_leaf(relay_1);
+		let disabled_validators = vec![index_disabled];
+		let leaf_2 = state.make_dummy_leaf_with_disabled_validators(relay_2, disabled_validators);
+
+		let (candidate_1, pvd_1) = make_candidate(
+			relay_1,
+			1,
+			local_para,
+			leaf_1.para_data(local_para).head_data.clone(),
+			vec![4, 5, 6].into(),
+			Hash::repeat_byte(42).into(),
+		);
+		let candidate_1_hash = candidate_1.hash();
+
+		let (candidate_2, _) = make_candidate(
+			relay_1,
+			1,
+			local_para,
+			leaf_1.para_data(local_para).head_data.clone(),
+			vec![4, 5, 6, 7].into(),
+			Hash::repeat_byte(42).into(),
+		);
+		let candidate_2_hash = candidate_2.hash();
+
+		{
+			connect_peer(
+				&mut overseer,
+				peer_disabled.clone(),
+				Some(vec![state.discovery_id(index_disabled)].into_iter().collect()),
+			)
+			.await;
+			send_peer_view_change(&mut overseer, peer_disabled.clone(), view![relay_1]).await;
+		}
+
+		activate_leaf(&mut overseer, &leaf_1, &state, true).await;
+
+		answer_expected_hypothetical_depth_request(&mut overseer, vec![], Some(relay_1), false)
+			.await;
+
+		let seconded_1 = state
+			.sign_statement(
+				index_disabled,
+				CompactStatement::Seconded(candidate_1_hash),
+				&SigningContext { parent_hash: relay_1, session_index: 1 },
+			)
+			.as_unchecked()
+			.clone();
+
+		let seconded_2 = state
+			.sign_statement(
+				index_disabled,
+				CompactStatement::Seconded(candidate_2_hash),
+				&SigningContext { parent_hash: relay_1, session_index: 1 },
+			)
+			.as_unchecked()
+			.clone();
+		{
+			send_peer_message(
+				&mut overseer,
+				peer_disabled.clone(),
+				protocol_v2::StatementDistributionMessage::Statement(relay_1, seconded_1.clone()),
+			)
+			.await;
+
+			assert_matches!(
+				overseer.recv().await,
+				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
+				if p == peer_disabled && r == BENEFIT_VALID_STATEMENT_FIRST.into() => { }
+			);
+		}
+
+		{
+			handle_sent_request(
+				&mut overseer,
+				peer_disabled,
+				candidate_1_hash,
+				StatementFilter::blank(group_size),
+				candidate_1.clone(),
+				pvd_1.clone(),
+				vec![seconded_1.clone()],
+			)
+			.await;
+
+			assert_matches!(
+				overseer.recv().await,
+				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
+					if p == peer_disabled && r == BENEFIT_VALID_STATEMENT.into() => { }
+			);
+
+			assert_matches!(
+				overseer.recv().await,
+				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
+					if p == peer_disabled && r == BENEFIT_VALID_RESPONSE.into() => { }
+			);
+
+			answer_expected_hypothetical_depth_request(&mut overseer, vec![], None, false).await;
+		}
+
+		activate_leaf(&mut overseer, &leaf_2, &state, false).await;
+
+		answer_expected_hypothetical_depth_request(&mut overseer, vec![], Some(relay_2), false)
+			.await;
+		{
+			send_peer_message(
+				&mut overseer,
+				peer_disabled.clone(),
+				protocol_v2::StatementDistributionMessage::Statement(relay_1, seconded_2.clone()),
+			)
+			.await;
+
+			assert_matches!(
+				overseer.recv().await,
+				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
+					if p == peer_disabled && r == COST_DISABLED_VALIDATOR.into() => { }
+			);
+		}
+
+		overseer
+	});
+}
+
+#[test]
 fn local_node_sanity_checks_incoming_requests() {
 	let config = TestConfig {
 		validator_count: 20,
