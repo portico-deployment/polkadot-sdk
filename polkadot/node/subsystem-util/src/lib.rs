@@ -55,6 +55,7 @@ use sp_core::ByteArray;
 use sp_keystore::{Error as KeystoreError, KeystorePtr};
 use std::time::Duration;
 use thiserror::Error;
+use vstaging::get_disabled_validators_with_fallback;
 
 pub use metered;
 pub use polkadot_node_network_protocol::MIN_GOSSIP_PEERS;
@@ -79,6 +80,9 @@ pub mod inclusion_emulator;
 /// Convenient and efficient runtime info access.
 pub mod runtime;
 
+/// Helpers for working with unreleased runtime calls
+pub mod vstaging;
+
 /// Nested message sending
 ///
 /// Useful for having mostly synchronous code, with submodules spawning short lived asynchronous
@@ -91,6 +95,8 @@ mod determine_new_blocks;
 
 #[cfg(test)]
 mod tests;
+
+const LOG_TARGET: &'static str = "parachain::subsystem-util";
 
 /// Duration a job will wait after sending a stop signal before hard-aborting.
 pub const JOB_GRACEFUL_STOP_DURATION: Duration = Duration::from_secs(1);
@@ -155,6 +161,62 @@ where
 		.await;
 
 	rx
+}
+
+/// Verifies if `ParachainHost` runtime api is at least at version `required_runtime_version`. This
+/// method is used to determine if a given runtime call is supported by the runtime.
+pub async fn has_required_runtime<Sender>(
+	sender: &mut Sender,
+	relay_parent: Hash,
+	required_runtime_version: u32,
+) -> bool
+where
+	Sender: SubsystemSender<RuntimeApiMessage>,
+{
+	gum::trace!(target: LOG_TARGET, ?relay_parent, "Fetching ParachainHost runtime api version");
+
+	let (tx, rx) = oneshot::channel();
+	sender
+		.send_message(RuntimeApiMessage::Request(relay_parent, RuntimeApiRequest::Version(tx)))
+		.await;
+
+	match rx.await {
+		Result::Ok(Ok(runtime_version)) => {
+			gum::trace!(
+				target: LOG_TARGET,
+				?relay_parent,
+				?runtime_version,
+				?required_runtime_version,
+				"Fetched  ParachainHost runtime api version"
+			);
+			runtime_version >= required_runtime_version
+		},
+		Result::Ok(Err(RuntimeApiError::Execution { source: error, .. })) => {
+			gum::trace!(
+				target: LOG_TARGET,
+				?relay_parent,
+				?error,
+				"Execution error while fetching ParachainHost runtime api version"
+			);
+			false
+		},
+		Result::Ok(Err(RuntimeApiError::NotSupported { .. })) => {
+			gum::trace!(
+				target: LOG_TARGET,
+				?relay_parent,
+				"NotSupported error while fetching ParachainHost runtime api version"
+			);
+			false
+		},
+		Result::Err(_) => {
+			gum::trace!(
+				target: LOG_TARGET,
+				?relay_parent,
+				"Cancelled error while fetching ParachainHost runtime api version"
+			);
+			false
+		},
+	}
 }
 
 /// Construct specialized request functions for the runtime.
@@ -401,7 +463,10 @@ impl Validator {
 
 		let validators = validators?;
 
-		let disabled_validators = disabled_validators?;
+		// TODO: https://github.com/paritytech/polkadot-sdk/issues/1940
+		// When `DisabledValidators` is released remove this and add a
+		// `request_disabled_validators` call here
+		let disabled_validators = get_disabled_validators_with_fallback(sender, parent).await?;
 
 		Self::construct(&validators, &disabled_validators, signing_context, keystore)
 	}

@@ -118,6 +118,7 @@ use statement_table::{
 	},
 	Config as TableConfig, Context as TableContextTrait, Table,
 };
+use util::vstaging::get_disabled_validators_with_fallback;
 
 mod error;
 
@@ -1030,6 +1031,14 @@ async fn construct_per_relay_parent_state<Context>(
 		try_runtime_api!(request_min_backing_votes(parent, session_index, ctx.sender()).await);
 	let disabled_validators = try_runtime_api!(disabled_validators);
 
+	// TODO: https://github.com/paritytech/polkadot-sdk/issues/1940
+	// Once runtime ver `DISABLED_VALIDATORS_RUNTIME_REQUIREMENT` is released remove this call to
+	// `get_disabled_validators_with_fallback`, add `request_disabled_validators` call to the
+	// `try_join!` above and use `try_runtime_api!` to get `disabled_validators`
+	let disabled_validators = get_disabled_validators_with_fallback(ctx.sender(), parent)
+		.await
+		.map_err(Error::UtilError)?;
+
 	let signing_context = SigningContext { parent_hash: parent, session_index };
 	let validator = match Validator::construct(
 		&validators,
@@ -1752,10 +1761,17 @@ async fn kick_off_validation_work<Context>(
 	background_validation_tx: &mpsc::Sender<(Hash, ValidatedCandidateCommand)>,
 	attesting: AttestingData,
 ) -> Result<(), Error> {
-	// Do nothing if the local validator is disabled
-	if rp_state.table_context.local_validator_is_disabled() == Some(true) {
-		gum::debug!(target: LOG_TARGET, "We are disabled - don't kick off validation");
-		return Ok(())
+	// Do nothing if the local validator is disabled or not a validator at all
+	match rp_state.table_context.local_validator_is_disabled() {
+		Some(true) => {
+			gum::info!(target: LOG_TARGET, "We are disabled - don't kick off validation");
+			return Ok(())
+		},
+		Some(false) => {}, // we are not disabled - move on
+		None => {
+			gum::debug!(target: LOG_TARGET, "We are not a validator - don't kick off validation");
+			return Ok(())
+		},
 	}
 
 	let candidate_hash = attesting.candidate.hash();
@@ -1987,7 +2003,7 @@ async fn handle_second_message<Context>(
 	};
 
 	// Just return if the local validator is disabled. If we are here the local node should be a
-	// validator but defensively use `unwrap_or(false)`) to continue processing in this case.
+	// validator but defensively use `unwrap_or(false)` to continue processing in this case.
 	if rp_state.table_context.local_validator_is_disabled().unwrap_or(false) {
 		gum::warn!(target: LOG_TARGET, "Local validator is disabled. Don't validate and second");
 		return Ok(())

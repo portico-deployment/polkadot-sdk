@@ -305,6 +305,26 @@ async fn test_startup(virtual_overseer: &mut VirtualOverseer, test_state: &TestS
 			tx.send(Ok(test_state.minimum_backing_votes)).unwrap();
 		}
 	);
+
+	// Check that subsystem job issues a request for the runtime version.
+	assert_matches!(
+		virtual_overseer.recv().await,
+		AllMessages::RuntimeApi(
+			RuntimeApiMessage::Request(parent, RuntimeApiRequest::Version(tx))
+		) if parent == test_state.relay_parent => {
+			tx.send(Ok(RuntimeApiRequest::DISABLED_VALIDATORS_RUNTIME_REQUIREMENT)).unwrap();
+		}
+	);
+
+	// Check that subsystem job issues a request for the disabled validators.
+	assert_matches!(
+		virtual_overseer.recv().await,
+		AllMessages::RuntimeApi(
+			RuntimeApiMessage::Request(parent, RuntimeApiRequest::DisabledValidators(tx))
+		) if parent == test_state.relay_parent => {
+			tx.send(Ok(test_state.disabled_validators.clone())).unwrap();
+		}
+	);
 }
 
 async fn assert_validation_requests(
