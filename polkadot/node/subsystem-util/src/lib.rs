@@ -453,10 +453,9 @@ impl Validator {
 		// Note: request_validators and request_session_index_for_child do not and cannot
 		// run concurrently: they both have a mutable handle to the same sender.
 		// However, each of them returns a oneshot::Receiver, and those are resolved concurrently.
-		let (validators, session_index, disabled_validators) = futures::try_join!(
+		let (validators, session_index) = futures::try_join!(
 			request_validators(parent, sender).await,
 			request_session_index_for_child(parent, sender).await,
-			request_disabled_validators(parent, sender).await,
 		)?;
 
 		let signing_context = SigningContext { session_index: session_index?, parent_hash: parent };

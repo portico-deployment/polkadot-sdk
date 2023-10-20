@@ -507,14 +507,13 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 		.map_err(JfyiError::RuntimeApiUnavailable)?
 		.map_err(JfyiError::FetchAvailabilityCores)?;
 
-		let disabled_validators = polkadot_node_subsystem_util::request_disabled_validators(
-			new_relay_parent,
-			ctx.sender(),
-		)
-		.await
-		.await
-		.map_err(JfyiError::RuntimeApiUnavailable)?
-		.map_err(JfyiError::FetchDisabledValidators)?;
+		let disabled_validators =
+			polkadot_node_subsystem_util::vstaging::get_disabled_validators_with_fallback(
+				ctx.sender(),
+				new_relay_parent,
+			)
+			.await
+			.map_err(JfyiError::FetchDisabledValidators)?;
 
 		let group_rotation_info =
 			polkadot_node_subsystem_util::request_validator_groups(new_relay_parent, ctx.sender())

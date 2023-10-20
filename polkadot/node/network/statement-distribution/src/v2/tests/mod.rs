@@ -452,6 +452,14 @@ async fn handle_leaf_activation(
 	assert_matches!(
 		virtual_overseer.recv().await,
 		AllMessages::RuntimeApi(
+			RuntimeApiMessage::Request(parent, RuntimeApiRequest::Version(tx))) if parent == *hash => {
+			tx.send(Ok(RuntimeApiRequest::DISABLED_VALIDATORS_RUNTIME_REQUIREMENT)).unwrap();
+		}
+	);
+
+	assert_matches!(
+		virtual_overseer.recv().await,
+		AllMessages::RuntimeApi(
 			RuntimeApiMessage::Request(parent, RuntimeApiRequest::DisabledValidators(tx))) if parent == *hash => {
 			tx.send(Ok(disabled_validators.clone())).unwrap();
 		}
