@@ -1008,16 +1008,12 @@ async fn construct_per_relay_parent_state<Context>(
 
 	let parent = relay_parent;
 
-	let (session_index, validators, groups, cores, disabled_validators) = futures::try_join!(
+	let (session_index, validators, groups, cores) = futures::try_join!(
 		request_session_index_for_child(parent, ctx.sender()).await,
 		request_validators(parent, ctx.sender()).await,
 		request_validator_groups(parent, ctx.sender()).await,
 		request_from_runtime(parent, ctx.sender(), |tx| {
 			RuntimeApiRequest::AvailabilityCores(tx)
-		},)
-		.await,
-		request_from_runtime(parent, ctx.sender(), |tx| {
-			RuntimeApiRequest::DisabledValidators(tx)
 		},)
 		.await,
 	)
@@ -1029,7 +1025,6 @@ async fn construct_per_relay_parent_state<Context>(
 	let cores = try_runtime_api!(cores);
 	let minimum_backing_votes =
 		try_runtime_api!(request_min_backing_votes(parent, session_index, ctx.sender()).await);
-	let disabled_validators = try_runtime_api!(disabled_validators);
 
 	// TODO: https://github.com/paritytech/polkadot-sdk/issues/1940
 	// Once runtime ver `DISABLED_VALIDATORS_RUNTIME_REQUIREMENT` is released remove this call to

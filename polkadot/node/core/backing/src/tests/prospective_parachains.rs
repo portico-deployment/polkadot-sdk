@@ -185,16 +185,6 @@ async fn activate_leaf(
 			}
 		);
 
-		// Check that the subsystem job issues a request for the disabled validators.
-		assert_matches!(
-			virtual_overseer.recv().await,
-			AllMessages::RuntimeApi(
-				RuntimeApiMessage::Request(parent, RuntimeApiRequest::DisabledValidators(tx))
-			) if parent == hash => {
-				tx.send(Ok(Vec::new())).unwrap();
-			}
-		);
-
 		// Check if subsystem job issues a request for the minimum backing votes.
 		assert_matches!(
 			virtual_overseer.recv().await,
