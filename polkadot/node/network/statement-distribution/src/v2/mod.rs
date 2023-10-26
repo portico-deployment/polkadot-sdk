@@ -561,6 +561,16 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 			.get_mut(&session_index)
 			.expect("either existed or just inserted; qed");
 
+		if !disabled_validators.is_empty() {
+			gum::debug!(
+				target: LOG_TARGET,
+				relay_parent = ?new_relay_parent,
+				?session_index,
+				?disabled_validators,
+				"Disabled validators detected"
+			);
+		}
+
 		per_session.extend_disabled_validators(disabled_validators);
 
 		let local_validator = per_session.local_validator.and_then(|v| {
