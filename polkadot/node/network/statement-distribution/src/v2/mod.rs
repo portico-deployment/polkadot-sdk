@@ -215,13 +215,7 @@ impl PerSessionState {
 	/// Returns `None` if the group index is out of bounds.
 	pub fn disabled_bitmask(&self, group: GroupIndex) -> Option<BitVec<u8, Lsb0>> {
 		let group = self.groups.get(group)?;
-		let group_size = group.len();
-		let mut mask = BitVec::repeat(false, group_size);
-		for (i, v) in group.iter().enumerate() {
-			if self.is_disabled(v) {
-				mask.set(i, true);
-			}
-		}
+		let mask = BitVec::from_iter(group.iter().map(|v| self.is_disabled(v)));
 		Some(mask)
 	}
 
