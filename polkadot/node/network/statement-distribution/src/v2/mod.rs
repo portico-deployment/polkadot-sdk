@@ -97,7 +97,7 @@ const COST_UNEXPECTED_STATEMENT: Rep = Rep::CostMinor("Unexpected Statement");
 const COST_UNEXPECTED_STATEMENT_MISSING_KNOWLEDGE: Rep =
 	Rep::CostMinor("Unexpected Statement, missing knowledge for relay parent");
 const COST_EXCESSIVE_SECONDED: Rep = Rep::CostMinor("Sent Excessive `Seconded` Statements");
-const COST_DISABLED_VALIDATOR: Rep = Rep::CostMajor("Sent a statement from a disabled validator");
+const COST_DISABLED_VALIDATOR: Rep = Rep::CostMinor("Sent a statement from a disabled validator");
 
 const COST_UNEXPECTED_MANIFEST_MISSING_KNOWLEDGE: Rep =
 	Rep::CostMinor("Unexpected Manifest, missing knowlege for relay parent");
