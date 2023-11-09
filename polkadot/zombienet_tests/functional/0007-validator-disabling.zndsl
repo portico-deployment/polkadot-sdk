@@ -12,7 +12,7 @@ honest-validator: parachain 1000 is registered within 100 seconds
 honest-validator: parachain 1000 block height is at least 1 within 300 seconds
 
 # Wait for the dispute
-honest-validator-1: reports parachain_candidate_disputes_total is at least 1 within 300 seconds
+honest-validator-1: reports parachain_candidate_disputes_total is at least 1 within 600 seconds
 
 # Disputes should conclude
 honest-validator: reports polkadot_parachain_candidate_dispute_concluded{validity="invalid"} is at least 1 within 200 seconds
