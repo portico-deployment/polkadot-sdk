@@ -1109,7 +1109,7 @@ fn disabled_validators_added_to_unwanted_mask() {
 	let config = TestConfig {
 		validator_count: 20,
 		group_size,
-		local_validator: true,
+		local_validator: LocalRole::Validator,
 		async_backing_params: None,
 	};
 
@@ -1119,12 +1119,11 @@ fn disabled_validators_added_to_unwanted_mask() {
 
 	test_harness(config, |state, mut overseer| async move {
 		let local_validator = state.local.clone().unwrap();
-		let local_para = ParaId::from(local_validator.group_index.0);
-
-		let other_group_validators = state.group_validators(local_validator.group_index, true);
+		let local_group_index = local_validator.group_index.unwrap();
+		let local_para = ParaId::from(local_group_index.0);
+		let other_group_validators = state.group_validators(local_group_index, true);
 		let index_disabled = other_group_validators[0];
-		let index_within_group =
-			state.index_within_group(local_validator.group_index, index_disabled);
+		let index_within_group = state.index_within_group(local_group_index, index_disabled);
 		let index_b = other_group_validators[1];
 
 		let disabled_validators = vec![index_disabled];
@@ -1285,7 +1284,7 @@ fn no_response_for_grid_request_not_meeting_quorum() {
 	let config = TestConfig {
 		validator_count,
 		group_size,
-		local_validator: true,
+		local_validator: LocalRole::Validator,
 		async_backing_params: None,
 	};
 
@@ -1296,7 +1295,8 @@ fn no_response_for_grid_request_not_meeting_quorum() {
 
 	test_harness(config, |mut state, mut overseer| async move {
 		let local_validator = state.local.clone().unwrap();
-		let local_para = ParaId::from(local_validator.group_index.0);
+		let local_group_index = local_validator.group_index.unwrap();
+		let local_para = ParaId::from(local_group_index.0);
 
 		let test_leaf = state.make_dummy_leaf_with_min_backing_votes(relay_parent, 2);
 
@@ -1310,9 +1310,9 @@ fn no_response_for_grid_request_not_meeting_quorum() {
 		);
 		let candidate_hash = candidate.hash();
 
-		let other_group_validators = state.group_validators(local_validator.group_index, true);
+		let other_group_validators = state.group_validators(local_group_index, true);
 		let target_group_validators =
-			state.group_validators((local_validator.group_index.0 + 1).into(), true);
+			state.group_validators((local_group_index.0 + 1).into(), true);
 		let v_a = other_group_validators[0];
 		let v_b = other_group_validators[1];
 		let v_c = target_group_validators[0];
@@ -1467,7 +1467,7 @@ fn no_response_for_grid_request_not_meeting_quorum() {
 					assert_eq!(manifest, BackedCandidateManifest {
 						relay_parent,
 						candidate_hash,
-						group_index: local_validator.group_index,
+						group_index: local_validator.group_index.unwrap(),
 						para_id: local_para,
 						parent_head_data_hash: pvd.parent_head.hash(),
 						statement_knowledge: StatementFilter {
@@ -1520,7 +1520,7 @@ fn disabling_works_from_the_latest_state_not_relay_parent() {
 	let config = TestConfig {
 		validator_count: 20,
 		group_size,
-		local_validator: true,
+		local_validator: LocalRole::Validator,
 		async_backing_params: None,
 	};
 
@@ -1530,9 +1530,10 @@ fn disabling_works_from_the_latest_state_not_relay_parent() {
 
 	test_harness(config, |state, mut overseer| async move {
 		let local_validator = state.local.clone().unwrap();
-		let local_para = ParaId::from(local_validator.group_index.0);
+		let local_group_index = local_validator.group_index.unwrap();
+		let local_para = ParaId::from(local_group_index.0);
 
-		let other_group_validators = state.group_validators(local_validator.group_index, true);
+		let other_group_validators = state.group_validators(local_group_index, true);
 		let index_disabled = other_group_validators[0];
 
 		let leaf_1 = state.make_dummy_leaf(relay_1);
