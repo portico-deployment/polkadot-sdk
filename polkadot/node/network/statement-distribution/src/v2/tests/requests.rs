@@ -1101,7 +1101,7 @@ fn peer_reported_for_providing_statements_with_wrong_validator_id() {
 }
 
 #[test]
-fn peer_reported_for_providing_statement_from_disabled_validator() {
+fn disabled_validators_added_to_unwanted_mask() {
 	let group_size = 3;
 	let config = TestConfig {
 		validator_count: 20,
@@ -1120,6 +1120,8 @@ fn peer_reported_for_providing_statement_from_disabled_validator() {
 
 		let other_group_validators = state.group_validators(local_validator.group_index, true);
 		let index_disabled = other_group_validators[0];
+		let index_within_group =
+			state.index_within_group(local_validator.group_index, index_disabled);
 		let index_b = other_group_validators[1];
 
 		let disabled_validators = vec![index_disabled];
@@ -1221,12 +1223,16 @@ fn peer_reported_for_providing_statement_from_disabled_validator() {
 		// Send a request to peer and mock its response with a statement from disabled validator.
 		{
 			let statements = vec![seconded_disabled];
+			let mut mask = StatementFilter::blank(group_size);
+			let i = index_within_group.unwrap();
+			mask.seconded_in_group.set(i, true);
+			mask.validated_in_group.set(i, true);
 
 			handle_sent_request(
 				&mut overseer,
 				peer_b,
 				candidate_hash,
-				StatementFilter::blank(group_size),
+				mask,
 				candidate.clone(),
 				pvd.clone(),
 				statements,
@@ -1236,7 +1242,7 @@ fn peer_reported_for_providing_statement_from_disabled_validator() {
 			assert_matches!(
 				overseer.recv().await,
 				AllMessages::NetworkBridgeTx(NetworkBridgeTxMessage::ReportPeer(ReportPeerMessage::Single(p, r)))
-					if p == peer_b && r == COST_DISABLED_VALIDATOR.into() => { }
+					if p == peer_b && r == COST_UNREQUESTED_RESPONSE_STATEMENT.into() => { }
 			);
 
 			assert_matches!(
@@ -1569,7 +1575,8 @@ fn local_node_sanity_checks_incoming_requests() {
 					request_v2::AttestedCandidateRequest { candidate_hash: candidate.hash(), mask },
 				)
 				.await
-				.await;
+				.await
+				.unwrap();
 
 			assert_matches!(
 				response,
@@ -1596,7 +1603,8 @@ fn local_node_sanity_checks_incoming_requests() {
 					},
 				)
 				.await
-				.await;
+				.await
+				.unwrap();
 
 			// Should get `COST_UNEXPECTED_REQUEST` response.
 			assert_matches!(
@@ -1730,7 +1738,8 @@ fn local_node_checks_that_peer_can_request_before_responding() {
 					},
 				)
 				.await
-				.await;
+				.await
+				.unwrap();
 
 			let expected_statements = vec![signed.into_unchecked()];
 			assert_matches!(response, full_response => {
@@ -1779,7 +1788,8 @@ fn local_node_checks_that_peer_can_request_before_responding() {
 					},
 				)
 				.await
-				.await;
+				.await
+				.unwrap();
 
 			// Peer already knows about this candidate. Should reject.
 			assert_matches!(
@@ -1840,7 +1850,7 @@ fn local_node_respects_statement_mask() {
 		let local_validator = state.local.clone().unwrap();
 		let local_para = ParaId::from(local_validator.group_index.0);
 
-		let test_leaf = state.make_dummy_leaf(relay_parent);
+		let test_leaf = state.make_dummy_leaf_with_min_backing_votes(relay_parent, 1);
 
 		let (candidate, pvd) = make_candidate(
 			relay_parent,
@@ -2046,7 +2056,8 @@ fn local_node_respects_statement_mask() {
 					request_v2::AttestedCandidateRequest { candidate_hash: candidate.hash(), mask },
 				)
 				.await
-				.await;
+				.await
+				.unwrap();
 
 			let expected_statements = vec![statement_b];
 			assert_matches!(response, full_response => {

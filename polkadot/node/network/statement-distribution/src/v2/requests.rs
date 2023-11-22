@@ -30,13 +30,12 @@
 //! (which requires state not owned by the request manager).
 
 use super::{
-	BENEFIT_VALID_RESPONSE, BENEFIT_VALID_STATEMENT, COST_DISABLED_VALIDATOR,
+	seconded_and_sufficient, BENEFIT_VALID_RESPONSE, BENEFIT_VALID_STATEMENT,
 	COST_IMPROPERLY_DECODED_RESPONSE, COST_INVALID_RESPONSE, COST_INVALID_SIGNATURE,
 	COST_UNREQUESTED_RESPONSE_STATEMENT, REQUEST_RETRY_DELAY,
 };
 use crate::LOG_TARGET;
 
-use bitvec::prelude::{BitVec, Lsb0};
 use polkadot_node_network_protocol::{
 	request_response::{
 		outgoing::{Recipient as RequestRecipient, RequestError},
@@ -496,10 +495,6 @@ fn find_request_target_with_update(
 	}
 }
 
-fn seconded_and_sufficient(filter: &StatementFilter, backing_threshold: Option<usize>) -> bool {
-	backing_threshold.map_or(true, |t| filter.has_seconded() && filter.backing_validators() >= t)
-}
-
 /// A response to a request, which has not yet been handled.
 pub struct UnhandledResponse {
 	response: TaggedResponse,
@@ -529,7 +524,6 @@ impl UnhandledResponse {
 	///   * If the response is partially valid, misbehavior by the responding peer.
 	///   * If there are other peers which have advertised the same candidate for different
 	///     relay-parents or para-ids, misbehavior reports for those peers will also be generated.
-	///   * Statements from disabled validators are filtered out and reported as misbehavior.
 	///
 	/// Finally, in the case that the response is either valid or partially valid,
 	/// this will clean up all remaining requests for the candidate in the manager.
@@ -544,7 +538,6 @@ impl UnhandledResponse {
 		session: SessionIndex,
 		validator_key_lookup: impl Fn(ValidatorIndex) -> Option<ValidatorId>,
 		allowed_para_lookup: impl Fn(ParaId, GroupIndex) -> bool,
-		disabled_mask: BitVec<u8, Lsb0>,
 	) -> ResponseValidationOutput {
 		let UnhandledResponse {
 			response: TaggedResponse { identifier, requested_peer, props, response },
@@ -628,7 +621,6 @@ impl UnhandledResponse {
 			session,
 			validator_key_lookup,
 			allowed_para_lookup,
-			disabled_mask,
 		);
 
 		if let CandidateRequestStatus::Complete { .. } = output.request_status {
@@ -648,11 +640,10 @@ fn validate_complete_response(
 	session: SessionIndex,
 	validator_key_lookup: impl Fn(ValidatorIndex) -> Option<ValidatorId>,
 	allowed_para_lookup: impl Fn(ParaId, GroupIndex) -> bool,
-	mut disabled_mask: BitVec<u8, Lsb0>,
 ) -> ResponseValidationOutput {
 	let RequestProperties { backing_threshold, mut unwanted_mask } = props;
 
-	// sanity check bitmasks size. this is based entirely on
+	// sanity check bitmask size. this is based entirely on
 	// local logic here.
 	if !unwanted_mask.has_len(group.len()) {
 		gum::error!(
@@ -664,16 +655,6 @@ fn validate_complete_response(
 		// resize and attempt to continue.
 		unwanted_mask.seconded_in_group.resize(group.len(), true);
 		unwanted_mask.validated_in_group.resize(group.len(), true);
-	}
-	if disabled_mask.len() != group.len() {
-		gum::error!(
-			target: LOG_TARGET,
-			group_len = group.len(),
-			"Logic bug: group size != disabled bitmask len"
-		);
-
-		// resize and attempt to continue.
-		disabled_mask.resize(group.len(), false);
 	}
 
 	let invalid_candidate_output = || ResponseValidationOutput {
@@ -752,11 +733,6 @@ fn validate_complete_response(
 						rep_changes.push((requested_peer, COST_UNREQUESTED_RESPONSE_STATEMENT));
 						continue
 					}
-
-					if disabled_mask[i] {
-						rep_changes.push((requested_peer, COST_DISABLED_VALIDATOR));
-						continue
-					}
 				},
 				CompactStatement::Valid(_) => {
 					if unwanted_mask.validated_in_group[i] {
@@ -766,11 +742,6 @@ fn validate_complete_response(
 
 					if received_filter.validated_in_group[i] {
 						rep_changes.push((requested_peer, COST_UNREQUESTED_RESPONSE_STATEMENT));
-						continue
-					}
-
-					if disabled_mask[i] {
-						rep_changes.push((requested_peer, COST_DISABLED_VALIDATOR));
 						continue
 					}
 				},
@@ -1038,7 +1009,6 @@ mod tests {
 		let group = &[ValidatorIndex(0), ValidatorIndex(1), ValidatorIndex(2)];
 
 		let unwanted_mask = StatementFilter::blank(group_size);
-		let disabled_mask = unwanted_mask.seconded_in_group.clone();
 		let request_properties = RequestProperties { unwanted_mask, backing_threshold: None };
 
 		// Get requests.
@@ -1082,7 +1052,6 @@ mod tests {
 				0,
 				validator_key_lookup,
 				allowed_para_lookup,
-				disabled_mask.clone(),
 			);
 			assert_eq!(
 				output,
@@ -1121,7 +1090,6 @@ mod tests {
 				0,
 				validator_key_lookup,
 				allowed_para_lookup,
-				disabled_mask,
 			);
 			assert_eq!(
 				output,
@@ -1161,7 +1129,6 @@ mod tests {
 		let group = &[ValidatorIndex(0), ValidatorIndex(1), ValidatorIndex(2)];
 
 		let unwanted_mask = StatementFilter::blank(group_size);
-		let disabled_mask = unwanted_mask.seconded_in_group.clone();
 		let request_properties = RequestProperties { unwanted_mask, backing_threshold: None };
 		let peer_advertised =
 			|_identifier: &CandidateIdentifier, _peer: &_| Some(StatementFilter::full(group_size));
@@ -1202,7 +1169,6 @@ mod tests {
 				0,
 				validator_key_lookup,
 				allowed_para_lookup,
-				disabled_mask,
 			);
 			assert_eq!(
 				output,
@@ -1243,7 +1209,6 @@ mod tests {
 		let group = &[ValidatorIndex(0), ValidatorIndex(1), ValidatorIndex(2)];
 
 		let unwanted_mask = StatementFilter::blank(group_size);
-		let disabled_mask = unwanted_mask.seconded_in_group.clone();
 		let request_properties = RequestProperties { unwanted_mask, backing_threshold: None };
 		let peer_advertised =
 			|_identifier: &CandidateIdentifier, _peer: &_| Some(StatementFilter::full(group_size));
@@ -1282,7 +1247,6 @@ mod tests {
 				0,
 				validator_key_lookup,
 				allowed_para_lookup,
-				disabled_mask,
 			);
 			assert_eq!(
 				output,

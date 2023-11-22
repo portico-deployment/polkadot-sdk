@@ -173,6 +173,7 @@ impl TestState {
 			para_data: (0..self.session_info.validator_groups.len())
 				.map(|i| (ParaId::from(i as u32), PerParaData::new(1, vec![1, 2, 3].into())))
 				.collect(),
+			minimum_backing_votes: 2,
 		}
 	}
 
@@ -182,6 +183,14 @@ impl TestState {
 		disabled_validators: Vec<ValidatorIndex>,
 	) -> TestLeaf {
 		TestLeaf { disabled_validators, ..self.make_dummy_leaf(relay_parent) }
+	}
+
+	fn make_dummy_leaf_with_min_backing_votes(
+		&self,
+		relay_parent: Hash,
+		minimum_backing_votes: u32,
+	) -> TestLeaf {
+		TestLeaf { minimum_backing_votes, ..self.make_dummy_leaf(relay_parent) }
 	}
 
 	fn make_availability_cores(&self, f: impl Fn(usize) -> CoreState) -> Vec<CoreState> {
@@ -221,6 +230,19 @@ impl TestState {
 				self.local.as_ref().map_or(true, |l| !exclude_local || l.validator_index != i)
 			})
 			.collect()
+	}
+
+	fn index_within_group(
+		&self,
+		group_index: GroupIndex,
+		validator_index: ValidatorIndex,
+	) -> Option<usize> {
+		self.session_info
+			.validator_groups
+			.get(group_index)
+			.unwrap()
+			.iter()
+			.position(|&i| i == validator_index)
 	}
 
 	fn discovery_id(&self, validator_index: ValidatorIndex) -> AuthorityDiscoveryId {
@@ -267,7 +289,7 @@ impl TestState {
 		&mut self,
 		peer: PeerId,
 		request: AttestedCandidateRequest,
-	) -> impl Future<Output = sc_network::config::OutgoingResponse> {
+	) -> impl Future<Output = Option<sc_network::config::OutgoingResponse>> {
 		let (tx, rx) = futures::channel::oneshot::channel();
 		let req = sc_network::config::IncomingRequest {
 			peer,
@@ -276,7 +298,7 @@ impl TestState {
 		};
 		self.req_sender.send(req).await.unwrap();
 
-		rx.map(|r| r.unwrap())
+		rx.map(|r| r.ok())
 	}
 }
 
@@ -351,6 +373,7 @@ struct TestLeaf {
 	availability_cores: Vec<CoreState>,
 	disabled_validators: Vec<ValidatorIndex>,
 	para_data: Vec<(ParaId, PerParaData)>,
+	minimum_backing_votes: u32,
 }
 
 impl TestLeaf {
@@ -393,6 +416,7 @@ async fn handle_leaf_activation(
 		session,
 		availability_cores,
 		disabled_validators,
+		minimum_backing_votes,
 	} = leaf;
 
 	assert_matches!(
@@ -491,7 +515,7 @@ async fn handle_leaf_activation(
 				parent,
 				RuntimeApiRequest::MinimumBackingVotes(session_index, tx),
 			)) if parent == *hash && session_index == *session => {
-				tx.send(Ok(2)).unwrap();
+				tx.send(Ok(*minimum_backing_votes)).unwrap();
 			}
 		);
 	}

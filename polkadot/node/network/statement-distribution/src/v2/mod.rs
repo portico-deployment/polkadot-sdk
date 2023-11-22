@@ -596,9 +596,9 @@ pub(crate) async fn handle_active_leaves_update<Context>(
 				?disabled_validators,
 				"Disabled validators detected"
 			);
-		}
 
-		per_session.extend_disabled_validators(disabled_validators);
+			per_session.extend_disabled_validators(disabled_validators);
+		}
 
 		let local_validator = per_session.local_validator.and_then(|v| {
 			find_local_validator_state(
@@ -2778,17 +2778,24 @@ pub(crate) async fn dispatch_requests<Context>(ctx: &mut Context, state: &mut St
 			}
 		}
 
+		// Add disabled validators to the unwanted mask.
+		let disabled_mask = per_session
+			.disabled_bitmask(group_index)
+			.expect("group existence checked above; qed");
+		unwanted_mask.seconded_in_group |= &disabled_mask;
+		unwanted_mask.validated_in_group |= &disabled_mask;
+
 		// don't require a backing threshold for cluster candidates.
 		let require_backing = relay_parent_state.local_validator.as_ref()?.group != group_index;
 
-		Some(RequestProperties {
-			unwanted_mask,
-			backing_threshold: if require_backing {
-				Some(per_session.groups.get_size_and_backing_threshold(group_index)?.1)
-			} else {
-				None
-			},
-		})
+		let backing_threshold = if require_backing {
+			let threshold = per_session.groups.get_size_and_backing_threshold(group_index)?.1;
+			Some(threshold)
+		} else {
+			None
+		};
+
+		Some(RequestProperties { unwanted_mask, backing_threshold })
 	};
 
 	while let Some(request) = state.request_manager.next_request(
@@ -2861,10 +2868,6 @@ pub(crate) async fn handle_response<Context>(
 			Some(g) => g,
 		};
 
-		let disabled_mask = per_session
-			.disabled_bitmask(group_index)
-			.expect("group_index checked above; qed");
-
 		let res = response.validate_response(
 			&mut state.request_manager,
 			group,
@@ -2879,7 +2882,6 @@ pub(crate) async fn handle_response<Context>(
 
 				Some(g_index) == expected_group
 			},
-			disabled_mask,
 		);
 
 		for (peer, rep) in res.reputation_changes {
@@ -2977,6 +2979,14 @@ pub(crate) async fn handle_response<Context>(
 	//    includable.
 }
 
+/// Returns true if the statement filter meets the backing threshold for grid requests.
+pub(crate) fn seconded_and_sufficient(
+	filter: &StatementFilter,
+	backing_threshold: Option<usize>,
+) -> bool {
+	backing_threshold.map_or(true, |t| filter.has_seconded() && filter.backing_validators() >= t)
+}
+
 /// Answer an incoming request for a candidate.
 pub(crate) fn answer_request(state: &mut State, message: ResponderMessage) {
 	let ResponderMessage { request, sent_feedback } = message;
@@ -3017,11 +3027,13 @@ pub(crate) fn answer_request(state: &mut State, message: ResponderMessage) {
 		Some(d) => d,
 	};
 
-	let group_size = per_session
+	let group_index = confirmed.group_index();
+	let group = per_session
 		.groups
-		.get(confirmed.group_index())
-		.expect("group from session's candidate always known; qed")
-		.len();
+		.get(group_index)
+		.expect("group from session's candidate always known; qed");
+
+	let group_size = group.len();
 
 	// check request bitfields are right size.
 	if mask.seconded_in_group.len() != group_size || mask.validated_in_group.len() != group_size {
@@ -3075,16 +3087,55 @@ pub(crate) fn answer_request(state: &mut State, message: ResponderMessage) {
 		validated_in_group: !mask.validated_in_group.clone(),
 	};
 
-	// Ignore disabled validators when sending the response.
-	let disabled_mask = per_session.disabled_bitmask(confirmed.group_index()).unwrap_or_default();
+	// Ignore disabled validators from the latest state when sending the response.
+	let disabled_mask = per_session
+		.disabled_bitmask(confirmed.group_index())
+		.expect("group existence checked; qed");
 	and_mask.mask_seconded(&disabled_mask);
 	and_mask.mask_valid(&disabled_mask);
 
+	let mut sent_filter = StatementFilter::blank(group_size);
 	let statements: Vec<_> = relay_parent_state
 		.statement_store
 		.group_statements(&per_session.groups, confirmed.group_index(), *candidate_hash, &and_mask)
 		.map(|s| s.as_unchecked().clone())
+		.inspect(|s| {
+			let index_in_group = |v: ValidatorIndex| group.iter().position(|x| &v == x);
+			let Some(i) = index_in_group(s.unchecked_validator_index()) else {
+				return
+			};
+
+			match s.unchecked_payload() {
+				CompactStatement::Seconded(_) => {
+					sent_filter.seconded_in_group.set(i, true);
+				},
+				CompactStatement::Valid(_) => {
+					sent_filter.validated_in_group.set(i, true);
+				},
+			}
+		})
 		.collect();
+
+	// There should be no response at all for grid requests when the
+	// backing threshold is no longer met as a result of disabled validators.
+	if !is_cluster {
+		let threshold = per_session
+			.groups
+			.get_size_and_backing_threshold(group_index)
+			.expect("group existence checked above; qed")
+			.1;
+
+		if !seconded_and_sufficient(&sent_filter, Some(threshold)) {
+			gum::info!(
+				target: LOG_TARGET,
+				?candidate_hash,
+				relay_parent = ?confirmed.relay_parent(),
+				?group_index,
+				"Dropping a request from a grid peer because the backing threshold is no longer met."
+			);
+			return
+		}
+	}
 
 	// Update bookkeeping about which statements peers have received.
 	for statement in &statements {
