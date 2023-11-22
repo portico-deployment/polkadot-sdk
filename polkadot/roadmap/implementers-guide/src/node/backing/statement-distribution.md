@@ -137,7 +137,8 @@ disabling, and then receive a request. This can break an invariant of the grid
 mode:
 - the response is required to indicate quorum
 
-Due to the above, there should be no response at all for grid requests when the backing threshold is no longer met as a result of disabled validators.
+Due to the above, there should be no response at all for grid requests when
+the backing threshold is no longer met as a result of disabled validators.
 In addition to that, we add disabled validators to the request's unwanted
 mask. This ensures that the sender will not send statements from disabled
 validators (at least from the perspective of the receiver at the moment of the
