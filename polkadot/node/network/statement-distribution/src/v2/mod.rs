@@ -3177,9 +3177,7 @@ pub(crate) fn answer_request(state: &mut State, message: ResponderMessage) {
 		.map(|s| s.as_unchecked().clone())
 		.inspect(|s| {
 			let index_in_group = |v: ValidatorIndex| group.iter().position(|x| &v == x);
-			let Some(i) = index_in_group(s.unchecked_validator_index()) else {
-				return
-			};
+			let Some(i) = index_in_group(s.unchecked_validator_index()) else { return };
 
 			match s.unchecked_payload() {
 				CompactStatement::Seconded(_) => {
