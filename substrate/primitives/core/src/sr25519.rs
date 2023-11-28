@@ -555,7 +555,7 @@ pub mod vrf {
 	use crate::crypto::{VrfCrypto, VrfPublic};
 	use schnorrkel::{
 		errors::MultiSignatureStage,
-		vrf::{VRF_OUTPUT_LENGTH, VRF_PROOF_LENGTH},
+		vrf::{VRF_PREOUT_LENGTH, VRF_PROOF_LENGTH},
 		SignatureError,
 	};
 
@@ -636,7 +636,7 @@ pub mod vrf {
 
 	/// VRF output type suitable for schnorrkel operations.
 	#[derive(Clone, Debug, PartialEq, Eq)]
-	pub struct VrfOutput(pub schnorrkel::vrf::VRFOutput);
+	pub struct VrfOutput(pub schnorrkel::vrf::VRFPreOut);
 
 	impl Encode for VrfOutput {
 		fn encode(&self) -> Vec<u8> {
@@ -646,19 +646,19 @@ pub mod vrf {
 
 	impl Decode for VrfOutput {
 		fn decode<R: codec::Input>(i: &mut R) -> Result<Self, codec::Error> {
-			let decoded = <[u8; VRF_OUTPUT_LENGTH]>::decode(i)?;
-			Ok(Self(schnorrkel::vrf::VRFOutput::from_bytes(&decoded).map_err(convert_error)?))
+			let decoded = <[u8; VRF_PREOUT_LENGTH]>::decode(i)?;
+			Ok(Self(schnorrkel::vrf::VRFPreOut::from_bytes(&decoded).map_err(convert_error)?))
 		}
 	}
 
 	impl MaxEncodedLen for VrfOutput {
 		fn max_encoded_len() -> usize {
-			<[u8; VRF_OUTPUT_LENGTH]>::max_encoded_len()
+			<[u8; VRF_PREOUT_LENGTH]>::max_encoded_len()
 		}
 	}
 
 	impl TypeInfo for VrfOutput {
-		type Identity = [u8; VRF_OUTPUT_LENGTH];
+		type Identity = [u8; VRF_PREOUT_LENGTH];
 
 		fn type_info() -> scale_info::Type {
 			Self::Identity::type_info()
@@ -717,11 +717,11 @@ pub mod vrf {
 
 			let proof = self.0.dleq_proove(extra, &inout, true).0;
 
-			VrfSignature { output: VrfOutput(inout.to_output()), proof: VrfProof(proof) }
+			VrfSignature { output: VrfOutput(inout.to_preout()), proof: VrfProof(proof) }
 		}
 
 		fn vrf_output(&self, input: &Self::VrfInput) -> Self::VrfOutput {
-			let output = self.0.vrf_create_hash(input.0.clone()).to_output();
+			let output = self.0.vrf_create_hash(input.0.clone()).to_preout();
 			VrfOutput(output)
 		}
 	}
@@ -762,6 +762,7 @@ pub mod vrf {
 			ScalarFormatError => "Signature error: `ScalarFormatError`".into(),
 			NotMarkedSchnorrkel => "Signature error: `NotMarkedSchnorrkel`".into(),
 			BytesLengthError { .. } => "Signature error: `BytesLengthError`".into(),
+			InvalidKey => "Signature error: `InvalidKey`".into(),
 			MuSigAbsent { musig_stage: Commitment } =>
 				"Signature error: `MuSigAbsent` at stage `Commitment`".into(),
 			MuSigAbsent { musig_stage: Reveal } =>

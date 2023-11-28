@@ -415,9 +415,9 @@ fn garbage_assignment_cert(kind: AssignmentCertKind) -> AssignmentCert {
 	let mut prng = rand_core::OsRng;
 	let keypair = schnorrkel::Keypair::generate_with(&mut prng);
 	let (inout, proof, _) = keypair.vrf_sign(ctx.bytes(msg));
-	let out = inout.to_output();
+	let preout = inout.to_preout();
 
-	AssignmentCert { kind, vrf: VrfSignature { output: VrfOutput(out), proof: VrfProof(proof) } }
+	AssignmentCert { kind, vrf: VrfSignature { output: VrfOutput(preout), proof: VrfProof(proof) } }
 }
 
 fn garbage_assignment_cert_v2(kind: AssignmentCertKindV2) -> AssignmentCertV2 {
@@ -426,9 +426,12 @@ fn garbage_assignment_cert_v2(kind: AssignmentCertKindV2) -> AssignmentCertV2 {
 	let mut prng = rand_core::OsRng;
 	let keypair = schnorrkel::Keypair::generate_with(&mut prng);
 	let (inout, proof, _) = keypair.vrf_sign(ctx.bytes(msg));
-	let out = inout.to_output();
+	let preout = inout.to_preout();
 
-	AssignmentCertV2 { kind, vrf: VrfSignature { output: VrfOutput(out), proof: VrfProof(proof) } }
+	AssignmentCertV2 {
+		kind,
+		vrf: VrfSignature { output: VrfOutput(preout), proof: VrfProof(proof) },
+	}
 }
 
 fn sign_approval(

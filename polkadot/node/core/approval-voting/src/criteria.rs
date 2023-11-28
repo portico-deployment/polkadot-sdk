@@ -459,7 +459,7 @@ fn compute_relay_vrf_modulo_assignments_v1(
 			let cert = AssignmentCert {
 				kind: AssignmentCertKind::RelayVRFModulo { sample: rvm_sample },
 				vrf: VrfSignature {
-					output: VrfOutput(vrf_in_out.to_output()),
+					output: VrfOutput(vrf_in_out.to_preout()),
 					proof: VrfProof(vrf_proof),
 				},
 			};
@@ -539,7 +539,7 @@ fn compute_relay_vrf_modulo_assignments_v2(
 				core_bitfield: assignment_bitfield.clone(),
 			},
 			vrf: VrfSignature {
-				output: VrfOutput(vrf_in_out.to_output()),
+				output: VrfOutput(vrf_in_out.to_preout()),
 				proof: VrfProof(vrf_proof),
 			},
 		};
@@ -574,7 +574,7 @@ fn compute_relay_vrf_delay_assignments(
 		let cert = AssignmentCertV2 {
 			kind: AssignmentCertKindV2::RelayVRFDelay { core_index: core },
 			vrf: VrfSignature {
-				output: VrfOutput(vrf_in_out.to_output()),
+				output: VrfOutput(vrf_in_out.to_preout()),
 				proof: VrfProof(vrf_proof),
 			},
 		};
