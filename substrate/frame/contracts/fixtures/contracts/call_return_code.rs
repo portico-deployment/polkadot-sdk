@@ -15,12 +15,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This calls another contract as passed as its account id.
+//! This calls the supplied dest and transfers 100 balance during this call and copies
+//! the return code of this call to the output buffer.
+//! It also forwards its input to the callee.
 #![no_std]
 #![no_main]
 
 extern crate common;
 use uapi::{HostFn, HostFnImpl as api};
+
+const VALUE: [u8; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
 #[no_mangle]
 #[polkavm_derive::polkavm_export]
@@ -29,22 +33,25 @@ pub extern "C" fn deploy() {}
 #[no_mangle]
 #[polkavm_derive::polkavm_export]
 pub extern "C" fn call() {
-	let mut buffer = [0u8; 40];
-
 	// Read the input data.
+	let mut buffer = [0u8; 100];
 	api::input(&mut &mut buffer[..]);
-	let callee_input = &buffer[0..4];
-	let callee_addr = &buffer[4..36];
-	let value = &buffer[36..40];
+
+	let callee_addr = &buffer[0..32];
+	let input = &buffer[32..36];
 
 	// Call the callee
-	api::call_v1(
+	let err_code = match api::call_v1(
 		uapi::CallFlags::empty(),
 		callee_addr,
 		0u64, // How much gas to devote for the execution. 0 = all.
-		&value,
-		&callee_input,
+		&VALUE,
+		&input,
 		None,
-	)
-	.unwrap();
+	) {
+		Ok(_) => 0u32,
+		Err(code) => code as u32,
+	};
+
+	api::return_value(uapi::ReturnFlags::empty(), &err_code.to_le_bytes());
 }

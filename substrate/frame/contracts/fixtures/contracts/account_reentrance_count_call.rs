@@ -15,7 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This calls another contract as passed as its account id.
+//! This fixture tests if account_reentrance_count works as expected
+//! testing it with 2 different addresses
 #![no_std]
 #![no_main]
 
@@ -29,22 +30,13 @@ pub extern "C" fn deploy() {}
 #[no_mangle]
 #[polkavm_derive::polkavm_export]
 pub extern "C" fn call() {
-	let mut buffer = [0u8; 40];
+	// Read "callee" input address.
+	let mut callee = [0u8; 32];
+	api::input(&mut &mut callee[..]);
 
-	// Read the input data.
-	api::input(&mut &mut buffer[..]);
-	let callee_input = &buffer[0..4];
-	let callee_addr = &buffer[4..36];
-	let value = &buffer[36..40];
+	#[allow(deprecated)]
+	let reentrance_count = api::account_reentrance_count(&callee);
 
-	// Call the callee
-	api::call_v1(
-		uapi::CallFlags::empty(),
-		callee_addr,
-		0u64, // How much gas to devote for the execution. 0 = all.
-		&value,
-		&callee_input,
-		None,
-	)
-	.unwrap();
+	// Return the reentrance count.
+	api::return_value(uapi::ReturnFlags::empty(), &reentrance_count.to_le_bytes());
 }

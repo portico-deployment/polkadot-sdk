@@ -15,7 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This calls another contract as passed as its account id.
+// This fixture tests if account_reentrance_count works as expected
+// testing it with 2 different addresses
 #![no_std]
 #![no_main]
 
@@ -29,22 +30,14 @@ pub extern "C" fn deploy() {}
 #[no_mangle]
 #[polkavm_derive::polkavm_export]
 pub extern "C" fn call() {
-	let mut buffer = [0u8; 40];
+	// Buffer to receive the balance.
+	// Initialize it with 1s so that we can check that it is overwritten.
+	let mut balance = [1u8; 8];
 
-	// Read the input data.
-	api::input(&mut &mut buffer[..]);
-	let callee_input = &buffer[0..4];
-	let callee_addr = &buffer[4..36];
-	let value = &buffer[36..40];
+	// Read the contract balance.
+	api::balance(&mut &mut balance[..]);
+	let balance = u64::from_le_bytes(balance);
 
-	// Call the callee
-	api::call_v1(
-		uapi::CallFlags::empty(),
-		callee_addr,
-		0u64, // How much gas to devote for the execution. 0 = all.
-		&value,
-		&callee_input,
-		None,
-	)
-	.unwrap();
+	// Assert that the balance is 0.
+	assert_eq!(balance, 0);
 }
